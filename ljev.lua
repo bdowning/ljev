@@ -142,6 +142,14 @@ ffi.metatype('struct ev_loop', { __index = {
     ref = function (loop) evC.ev_ref(loop) end,
     unref = function (loop) evC.ev_unref(loop) end,
 
+    set_io_collect_interval = function (loop, interval)
+        evC.ev_set_io_collect_interval(loop, interval)
+    end,
+
+    set_timeout_collect_interval = function (loop, interval)
+        evC.ev_set_timeout_collect_interval(loop, interval)
+    end,
+
     set_invoke_pending_lua = function (loop)
         evC.ev_set_invoke_pending_cb(loop, invoke_pending_cptr)
     end,
@@ -163,10 +171,12 @@ ffi.metatype('struct ev_loop', { __index = {
     end,
 }})
 
+ev.FLAG_AUTO = C.EVFLAG_AUTO
 ev.FLAG_FORKCHECK = C.EVFLAG_FORKCHECK
 ev.FLAG_NOENV = C.EVFLAG_NOENV
 ev.FLAG_NOINOTIFY = C.EVFLAG_NOINOTIFY
-ev.FLAG_SIGNALFG = C.EVFLAG_SIGNALFD
+ev.FLAG_SIGNALFD = C.EVFLAG_SIGNALFD
+ev.FLAG_NOSIGMASK = C.EVFLAG_NOSIGMASK
 
 ev.BACKEND_EPOLL = C.EVBACKEND_EPOLL
 ev.BACKEND_POLL = C.EVBACKEND_POLL

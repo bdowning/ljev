@@ -21,3 +21,4 @@ for i = 1, 6000 do
 end
 
 loop:run()
+print(loop:iteration())
