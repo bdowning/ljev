@@ -39,7 +39,7 @@ local function invoke_pending(loop)
 end
 local invoke_pending_cptr = ffi.cast('ev_loop_callback', invoke_pending)
 
-ev.ev_set_invoke_pending_cb(loop, invoke_pending_cptr)-- loop.invoke_cb = invoke_pending_cptr
+ev.ev_set_invoke_pending_cb(loop, invoke_pending_cptr)
 
 local count = 0
 local function cb(loop, w, revents)
@@ -53,15 +53,22 @@ local function cb(loop, w, revents)
     count = count + 1
 end
 
+local cnt = ffi.load('./libcount.so')
+ffi.cdef[[void count_cb(struct ev_loop *loop, ev_watcher *w, int revents);]]
+
 local ts = { }
 for i = 1, 2000 do
     local timer = ffi.new('ev_timer')
     timer.at = 0.002
     timer['repeat'] = 0.002
-    timer.cb = lua_cb_trampoline_cptr
-    local n = #libev_lua_cbs + 1
-    libev_lua_cbs[n] = cb
-    timer.data = ffi.cast('void *', n)
+    if math.random() > 0.5 then
+        timer.cb = lua_cb_trampoline_cptr
+        local n = #libev_lua_cbs + 1
+        libev_lua_cbs[n] = cb
+        timer.data = ffi.cast('void *', n)
+    else
+        timer.cb = cnt.count_cb
+    end
     ev.ev_timer_start(loop, timer)
     ts[i] = timer
 end
