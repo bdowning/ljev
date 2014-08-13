@@ -6,36 +6,47 @@ local evC = ffi.load('ev')
 
 local ev = { }
 
-local active_watchers = { }
+local active_watchers = {
+    { },
+    function () error("Inactive Lua libev watcher called!") end
+}
 local free_watcher_slots = { }
-local next_watcher_slot = 1
+local next_watcher_slot = 3
 
-local function activate_watcher(w)
-    local slot
-    if #free_watcher_slots > 0 then
-        slot = table.remove(free_watcher_slots)
-    else
-        slot = next_watcher_slot
-        next_watcher_slot = next_watcher_slot + 2
+local function activate_watcher(w, cb)
+    local slot = tonumber(ffi.cast('int', w._wC.data)) + 1
+    if slot == 1 then
+        if #free_watcher_slots > 0 then
+            slot = table.remove(free_watcher_slots)
+        else
+            slot = next_watcher_slot
+            next_watcher_slot = next_watcher_slot + 2
+        end
+        w._wC.data = ffi.cast('void *', slot - 1)
+        active_watchers[slot] = w
+        -- print('activate_watcher', w, cb, slot)
     end
-    w._wC.data = ffi.cast('void *', slot)
-    active_watchers[slot] = w
-    active_watchers[slot + 1] = w.cb
+    active_watchers[slot + 1] = cb
 end
 
 local function deactivate_watcher(w)
-    local slot = tonumber(ffi.cast('intptr_t', w._wC.data))
-    assert(slot > 0)
-    w._wC.data = nil
-    active_watchers[slot + 1] = nil
-    active_watchers[slot] = nil
-    table.insert(free_watcher_slots, slot)
+    local slot = tonumber(ffi.cast('int', w._wC.data)) + 1
+    if slot > 1 then
+        -- print('deactivate_watcher', w, slot)
+        assert(slot > 0)
+        w._wC.data = nil
+        active_watchers[slot + 1] = nil
+        active_watchers[slot] = nil    
+        table.insert(free_watcher_slots, slot)
+    end
 end
 
 local function lua_cb_trampoline(loop, wC, revents)
     -- print('lua_cb_trampoline', loop, wC, revents)
-    local slot = tonumber(ffi.cast('int', wC.data))
-    active_watchers[slot + 1](loop, active_watchers[slot], revents)
+    local slot = tonumber(ffi.cast('int', wC.data)) + 1
+    local w = active_watchers[slot]
+    active_watchers[slot + 1](loop, w, revents)
+    if wC.active == 0 then deactivate_watcher(w) end
 end
 local lua_cb_trampoline_cptr =
     ffi.cast('void (*)(struct ev_loop *loop, ev_watcher *w, int revents)',
@@ -238,13 +249,15 @@ Watcher.__index = Watcher
 
 local IO = setmetatable({
     start = function (w, loop)
+        if w:is_active() then return end
         w._wC.fd = w.fd
         w._wC.events = bit.bor(w.events, C.EV__IOFDSET)
-        activate_watcher(w)
+        activate_watcher(w, w.cb)
         evC.ev_io_start(loop or ev.default_loop(), w._wC)
     end,
 
     stop = function (w, loop)
+        if not w:is_active() then return end
         evC.ev_io_stop(loop or ev.default_loop(), w._wC)
         deactivate_watcher(w)
     end,
@@ -263,19 +276,24 @@ end
 
 local Timer = setmetatable({
     start = function (w, loop, at, rep)
+        if w:is_active() then return end
         if type(loop) == 'number' then
             loop, at, rep = nil, loop, at
         end
         w.at = at or w.at
         w.rep = rep or w.rep
-        w._wC.at = w.at
-        w._wC['repeat'] = w.rep
-        activate_watcher(w)
+        w._wC.at = w.at or 0
+        w._wC['repeat'] = w.rep or 0
+        activate_watcher(w, w.cb)
         evC.ev_timer_start(loop or ev.default_loop(), w._wC)
     end,
 
-    again = function (w, loop)
-        w._wC['repeat'] = w.rep
+    again = function (w, loop, rep)
+        if type(loop) == 'number' then
+            loop, rep = nil, loop
+        end
+        w.rep = rep or w.rep
+        w._wC['repeat'] = w.rep or 0
         evC.ev_timer_again(loop, w._wC)
     end,
 
@@ -284,6 +302,7 @@ local Timer = setmetatable({
     end,
 
     stop = function (w, loop)
+        if not w:is_active() then return end
         evC.ev_timer_stop(loop or ev.default_loop(), w._wC)
         deactivate_watcher(w)
     end,
@@ -302,12 +321,14 @@ end
 
 local Signal = setmetatable({
     start = function (w, loop)
+        if w:is_active() then return end
         w._wC.signum = w.signum
-        activate_watcher(w)
+        activate_watcher(w, w.cb)
         evC.ev_signal_start(loop or ev.default_loop(), w._wC)
     end,
 
     stop = function (w, loop)
+        if not w:is_active() then return end
         evC.ev_signal_stop(loop or ev.default_loop(), w._wC)
         deactivate_watcher(w)
     end,
@@ -325,11 +346,13 @@ end
 
 local Idle = setmetatable({
     start = function (w, loop)
-        activate_watcher(w)
+        if w:is_active() then return end
+        activate_watcher(w, w.cb)
         evC.ev_idle_start(loop or ev.default_loop(), w._wC)
     end,
 
     stop = function (w, loop)
+        if not w:is_active() then return end
         evC.ev_idle_stop(loop or ev.default_loop(), w._wC)
         deactivate_watcher(w)
     end,
@@ -344,11 +367,11 @@ function ev.idle_new(cb)
     return setmetatable(w, Idle)
 end
 
-if true then
+if false then
     return ev
 end
 
-local loop = ev.default_loop(ev.BACKEND_POLL)
+local loop = ev.default_loop(ev.BACKEND_POLL + ev.FLAG_NOSIGMASK)
 print('loop', loop)
 print('iteration', loop:iteration())
 print('depth', loop:depth())
@@ -407,6 +430,17 @@ print('run', loop:run())
 timer:stop()
 print('timer._wC.at', timer._wC.at)
 print('timer._wC.repeat', timer._wC['repeat'])
+
+local timer = ev.timer_new(function (loop, w, revents)
+    print('timer 2!', loop, w, revents, w.stuff)
+    w.count = w.count and w.count + 1 or 1
+    print('w.count', w.count)
+    if w.count < 10 then
+        w:start(0.1)
+    end
+end)
+timer:start(0.1)
+print('run', loop:run())
 
 local count = 0
 local idle = ev.idle_new(function (loop, w, revents)
