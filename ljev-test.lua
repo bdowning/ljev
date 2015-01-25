@@ -1,3 +1,5 @@
+-- Copyright (C) 2014-2015 Brian Downing.  MIT License.
+
 local ev = require 'ljev'
 
 local count = 0

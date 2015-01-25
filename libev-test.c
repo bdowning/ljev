@@ -1,3 +1,5 @@
+/* Copyright (C) 2014-2015 Brian Downing.  MIT License. */
+
 #include <math.h>
 #include <stdio.h>
 #include <ev.h>

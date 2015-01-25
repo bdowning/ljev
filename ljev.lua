@@ -1,3 +1,5 @@
+-- Copyright (C) 2014-2015 Brian Downing.  MIT License.
+
 local bit = require 'bit'
 local C, ffi = require 'cdef' {
     functions = { 'ev_*' },
