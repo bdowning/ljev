@@ -13,12 +13,13 @@ local function cb(loop, w, revents)
 end
 
 local loop = ev.default_loop()
-loop:set_invoke_pending_lua()
 
-for i = 1, 6000 do
-    local timer = ev.timer_new(cb, 0.002, 0.002)
+for i = 1, 6 do
+    local timer = ev.idle_new(cb, 0.002, 0.002)
     timer:start(loop)
 end
+
+ev.prepare_new(function () end):start()
 
 loop:run()
 print(loop:iteration())

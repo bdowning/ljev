@@ -1,28 +1,29 @@
-require 'cdef.preprocessed_c'
 local bit = require 'bit'
-local ffi = require 'ffi'
-local C = ffi.C
+local C, ffi = require 'cdef' {
+    functions = { 'ev_*' },
+    constants = { 'EV*', 'NUMPRI' },
+}
+
 local evC = ffi.load('ev')
 
 local ev = { }
 
 local active_watchers = {
-    { },
     function () error("Inactive Lua libev watcher called!") end
 }
 local free_watcher_slots = { }
-local next_watcher_slot = 3
+local next_watcher_slot = 2
 
 local function activate_watcher(w, cb)
-    local slot = tonumber(ffi.cast('int', w._wC.data)) + 1
-    if slot == 1 then
+    local slot = tonumber(ffi.cast('int', w._wC.data))
+    if slot == 0 then
         if #free_watcher_slots > 0 then
             slot = table.remove(free_watcher_slots)
         else
             slot = next_watcher_slot
             next_watcher_slot = next_watcher_slot + 2
         end
-        w._wC.data = ffi.cast('void *', slot - 1)
+        w._wC.data = ffi.cast('void *', slot)
         active_watchers[slot] = w
         -- print('activate_watcher', w, cb, slot)
     end
@@ -30,8 +31,8 @@ local function activate_watcher(w, cb)
 end
 
 local function deactivate_watcher(w)
-    local slot = tonumber(ffi.cast('int', w._wC.data)) + 1
-    if slot > 1 then
+    local slot = tonumber(ffi.cast('int', w._wC.data))
+    if slot ~= 0 then
         -- print('deactivate_watcher', w, slot)
         assert(slot > 0)
         w._wC.data = nil
@@ -43,7 +44,7 @@ end
 
 local function lua_cb_trampoline(loop, wC, revents)
     -- print('lua_cb_trampoline', loop, wC, revents)
-    local slot = tonumber(ffi.cast('int', wC.data)) + 1
+    local slot = tonumber(ffi.cast('int', wC.data))
     local w = active_watchers[slot]
     active_watchers[slot + 1](loop, w, revents)
     if wC.active == 0 then deactivate_watcher(w) end
@@ -58,12 +59,12 @@ local function invoke_pending(loop)
     while loop.pendingpri ~= 0 do
         loop.pendingpri = loop.pendingpri - 1
         while loop.pendingcnt[loop.pendingpri] ~= 0 do
-            loop.pendingcnt[loop.pendingpri] =
-                loop.pendingcnt[loop.pendingpri] - 1
-            local p = loop.pendings[loop.pendingpri]
-                + loop.pendingcnt[loop.pendingpri]
+            local ppri = loop.pendingpri
+            local pcnt = loop.pendingcnt[ppri] - 1
+            loop.pendingcnt[ppri] = pcnt
+            local p = loop.pendings[ppri] + pcnt
 
-            p.w.pending = 0
+            p.w.pending = false
             if p.w.cb == lua_cb_trampoline_cptr then
                 lua_cb_trampoline(loop, p.w, p.events)
             else
@@ -74,59 +75,62 @@ local function invoke_pending(loop)
 end
 local invoke_pending_cptr = ffi.cast('ev_loop_callback', invoke_pending)
 
--- ffi.cdef[[void ev_run_guts(struct ev_loop *loop, int flags);]]
+ffi.cdef[[
+    void ev_queue_events(struct ev_loop *loop, W *events, int eventcnt, int type);
+    void ev_run_prep(struct ev_loop *loop);
+    void ev_run_guts(struct ev_loop *loop, int flags);
+]]
 
--- local function run(loop, flags)
---     loop.loop_depth = loop.loop_depth + 1
+local run = evC.ev_run
+if pcall(function () return evC.ev_run_guts end) then
+    function run(loop, flags)
+        loop.loop_depth = loop.loop_depth + 1
 
---     assert(loop.loop_done ~= C.EVBREAK_RECURSE)
+        assert(loop.loop_done ~= C.EVBREAK_RECURSE)
 
---     loop.loop_done = C.EVBREAK_CANCEL
+        loop.loop_done = C.EVBREAK_CANCEL
 
---     invoke_pending(loop)
+        invoke_pending(loop)
 
---     repeat
---         if loop.curpid ~= 0 then
---             if C.getpid() ~= loop.curpid then
---                 loop.curpid = C.getpid()
---                 loop.postfork = 1
---             end
---         end
+        repeat
+            evC.ev_run_prep(loop)
 
---         if loop.postfork ~= 0 then
---             if loop.forkcnt ~= 0 then
---                 evC.queue_events(loop, loop.forks, loop.forkcnt, C.EV_FORK)
---                 invoke_pending(loop)
---             end
---         end
+            if loop.preparecnt ~= 0 then
+                -- evC.ev_queue_events(loop, ffi.cast('W *', loop.prepares),
+                --                     loop.preparecnt, C.EV_PREPARE)
+                invoke_pending(loop)
+            end
 
---         if loop.preparecnt ~= 0 then
---             evC.queue_events(loop, loop.prepares, loop.preparecnt, C.EV_FORK)
---             invoke_pending(loop)
---         end
+            if loop.loop_done ~= 0 then
+                break
+            end
 
---         if loop.loop_done ~= 0 then
---             break
---         end
+            evC.ev_run_guts(loop, flags)
 
---         evC.ev_run_guts(loop, flags)
+            invoke_pending(loop)
+        until not (loop.activecnt ~= 0 and
+                       not loop.loop_done ~= 0 and
+                       not bit.band(flags, C.EVRUN_ONCE + C.EVRUN_NOWAIT) ~= 0)
 
---         invoke_pending(loop)
---     until not (loop.activecnt ~= 0 and
---                    not loop.loop_done ~= 0 and
---                    not bit.band(flags, C.EVRUN_ONCE + C.EVRUN_NOWAIT) ~= 0)
+        if loop.loop_done == C.EVBREAK_ONE then
+            loop.loop_done = C.EVBREAK_CANCEL
+        end
 
---     if loop.loop_done == C.EVBREAK_ONE then
---         loop.loop_done = C.EVBREAK_CANCEL
---     end
+        loop.loop_depth = loop.loop_depth - 1
 
---     loop.loop_depth = loop.loop_depth - 1
+        return loop.activecnt
+    end
+else
+    error('no patch?')
+end
 
---     return loop.activecnt
--- end
-
+local default_loop_initialized = false
 function ev.default_loop(flags)
-    return evC.ev_default_loop(flags or 0)
+    local loop = evC.ev_default_loop(flags or 0)
+    if not default_loop_initialized then
+        loop:set_invoke_pending_lua()
+    end
+    return loop
 end
 
 ffi.metatype('struct ev_loop', { __index = {
@@ -143,7 +147,7 @@ ffi.metatype('struct ev_loop', { __index = {
     end,
 
     run = function (loop, flags)
-        return evC.ev_run(loop, flags or 0) ~= 0
+        return run(loop, flags or 0) ~= 0
     end,
 
     brk = function (loop, how)
@@ -319,6 +323,77 @@ function ev.timer_new(cb, at, rep)
     return setmetatable(w, Timer)
 end
 
+local new_reschedule_cb =
+    ffi.typeof('ev_tstamp (*)(ev_periodic *w, ev_tstamp now)')
+
+local Periodic = setmetatable({
+    start = function (w, loop, offset, interval)
+        if w:is_active() then return end
+        if type(loop) == 'number' then
+            loop, offset, interval = nil, loop, offset
+        end
+        w.offset = offset or w.offset
+        w.interval = interval or w.interval
+        w._wC.offset = w.offset or 0
+        w._wC.interval = w.interval or 0
+        if w.reschedule_cb then
+            if w._wC.reschedule_cb ~= nil then
+                w._wC.reschedule_cb:set(w.reschedule_cb)
+            else
+                w._wC.reschedule_cb = new_reschedule_cb(w.reschedule_cb)
+            end
+        else
+            if w._wC.reschedule_cb ~= nil then
+                w._wC.reschedule_cb:free()
+                w._wC.reschedule_cb = nil
+            end
+        end
+        activate_watcher(w, w.cb)
+        evC.ev_periodic_start(loop or ev.default_loop(), w._wC)
+    end,
+
+    again = function (w, loop, offset, interval)
+        if type(loop) == 'number' then
+            loop, offset, interval = nil, loop, offset
+        end
+        w.offset = offset or w.offset
+        w.interval = interval or w.interval
+        w._wC.offset = w.offset or 0
+        w._wC.interval = w.interval or 0
+        evC.ev_periodic_again(loop, w._wC)
+    end,
+
+    at = function (w)
+        return w._wC.at
+    end,
+
+    stop = function (w, loop)
+        if not w:is_active() then return end
+        evC.ev_periodic_stop(loop or ev.default_loop(), w._wC)
+        deactivate_watcher(w)
+    end,
+}, Watcher)
+Periodic.__index = Periodic
+
+local function periodic_gc(_wC)
+    if _wC.reschedule_cb ~= nil then
+        _wC.reschedule_cb:free()
+        _wC.reschedule_cb = nil
+    end
+end
+
+function ev.periodic_new(cb, offset, interval, reschedule_cb)
+    local w = {
+        _wC = ffi.new('ev_periodic', { cb = lua_cb_trampoline_cptr }),
+        cb = cb,
+        offset = offset,
+        interval = interval,
+        reschedule_cb = reschedule_cb,
+    }
+    ffi.gc(w._wC, periodic_gc)
+    return setmetatable(w, Periodic)
+end
+
 local Signal = setmetatable({
     start = function (w, loop)
         if w:is_active() then return end
@@ -344,6 +419,41 @@ function ev.signal_new(cb, signum)
     return setmetatable(w, Signal)
 end
 
+local function child_cb_wrapper(inner_fn)
+    return function (loop, w, revents)
+        w.rpid = tonumber(w._wC.rpid)
+        w.rstatus = tonumber(w._wC.rstatus)
+        return inner_fn(loop, w, revents)
+    end
+end
+
+local Child = setmetatable({
+    start = function (w, loop)
+        if w:is_active() then return end
+        w._wC.pid = w.pid
+        w._wC.flags = not not w.trace
+        activate_watcher(w, child_cb_wrapper(w.cb))
+        evC.ev_child_start(loop or ev.default_loop(), w._wC)
+    end,
+
+    stop = function (w, loop)
+        if not w:is_active() then return end
+        evC.ev_child_stop(loop or ev.default_loop(), w._wC)
+        deactivate_watcher(w)
+    end,
+}, Watcher)
+Child.__index = Child
+
+function ev.child_new(cb, pid, trace)
+    local w = {
+        _wC = ffi.new('ev_child', { cb = lua_cb_trampoline_cptr }),
+        cb = cb,
+        pid = pid,
+        trace = trace,
+    }
+    return setmetatable(w, Child)
+end
+
 local Idle = setmetatable({
     start = function (w, loop)
         if w:is_active() then return end
@@ -367,9 +477,61 @@ function ev.idle_new(cb)
     return setmetatable(w, Idle)
 end
 
-if false then
+local Prepare = setmetatable({
+    start = function (w, loop)
+        if w:is_active() then return end
+        activate_watcher(w, w.cb)
+        evC.ev_prepare_start(loop or ev.default_loop(), w._wC)
+    end,
+
+    stop = function (w, loop)
+        if not w:is_active() then return end
+        evC.ev_prepare_stop(loop or ev.default_loop(), w._wC)
+        deactivate_watcher(w)
+    end,
+}, Watcher)
+Prepare.__index = Prepare
+
+function ev.prepare_new(cb)
+    local w = {
+        _wC = ffi.new('ev_prepare', { cb = lua_cb_trampoline_cptr }),
+        cb = cb,
+    }
+    return setmetatable(w, Prepare)
+end
+
+local Check = setmetatable({
+    start = function (w, loop)
+        if w:is_active() then return end
+        activate_watcher(w, w.cb)
+        evC.ev_check_start(loop or ev.default_loop(), w._wC)
+    end,
+
+    stop = function (w, loop)
+        if not w:is_active() then return end
+        evC.ev_check_stop(loop or ev.default_loop(), w._wC)
+        deactivate_watcher(w)
+    end,
+}, Watcher)
+Check.__index = Check
+
+function ev.check_new(cb)
+    local w = {
+        _wC = ffi.new('ev_check', { cb = lua_cb_trampoline_cptr }),
+        cb = cb,
+    }
+    return setmetatable(w, Check)
+end
+
+if true then
     return ev
 end
+
+require 'cdef' {
+    verbose = true,
+    functions = { 'kill', 'getpid', 'open', 'close' },
+    constants = { 'SIGUSR1', 'O_RDONLY' },
+}
 
 local loop = ev.default_loop(ev.BACKEND_POLL + ev.FLAG_NOSIGMASK)
 print('loop', loop)

@@ -1,0 +1,243 @@
+From 23464fc270ece0b51121c6bf5c5ba288fa85b059 Mon Sep 17 00:00:00 2001
+From: Brian Downing <bdowning@lavos.net>
+Date: Wed, 13 Aug 2014 17:07:55 -0500
+Subject: [PATCH 2/4] Extract guts from ev_run for luajitification of main loop
+
+Turns out this didn't help much, but here it is.
+---
+ ev.c | 212 ++++++++++++++++++++++++++++++++++---------------------------------
+ 1 file changed, 109 insertions(+), 103 deletions(-)
+
+diff --git a/ev.c b/ev.c
+index 03b697a..7836d8f 100644
+--- a/ev.c
++++ b/ev.c
+@@ -3315,6 +3315,114 @@ time_update (EV_P_ ev_tstamp max_block)
+     }
+ }
+ 
++void
++ev_run_guts (EV_P_ int flags)
++{
++  /* we might have forked, so reify kernel state if necessary */
++  if (expect_false (postfork))
++    loop_fork (EV_A);
++
++  /* update fd-related kernel structures */
++  fd_reify (EV_A);
++
++  /* calculate blocking time */
++  {
++    ev_tstamp waittime  = 0.;
++    ev_tstamp sleeptime = 0.;
++
++    /* remember old timestamp for io_blocktime calculation */
++    ev_tstamp prev_mn_now = mn_now;
++
++    /* update time to cancel out callback processing overhead */
++    time_update (EV_A_ 1e100);
++
++    /* from now on, we want a pipe-wake-up */
++    pipe_write_wanted = 1;
++
++    ECB_MEMORY_FENCE; /* make sure pipe_write_wanted is visible before we check for potential skips */
++
++    if (expect_true (!(flags & EVRUN_NOWAIT || idleall || !activecnt || pipe_write_skipped)))
++      {
++        waittime = MAX_BLOCKTIME;
++
++        if (timercnt)
++          {
++            ev_tstamp to = ANHE_at (timers [HEAP0]) - mn_now;
++            if (waittime > to) waittime = to;
++          }
++
++#if EV_PERIODIC_ENABLE
++        if (periodiccnt)
++          {
++            ev_tstamp to = ANHE_at (periodics [HEAP0]) - ev_rt_now;
++            if (waittime > to) waittime = to;
++          }
++#endif
++
++        /* don't let timeouts decrease the waittime below timeout_blocktime */
++        if (expect_false (waittime < timeout_blocktime))
++          waittime = timeout_blocktime;
++
++        /* at this point, we NEED to wait, so we have to ensure */
++        /* to pass a minimum nonzero value to the backend */
++        if (expect_false (waittime < backend_mintime))
++          waittime = backend_mintime;
++
++        /* extra check because io_blocktime is commonly 0 */
++        if (expect_false (io_blocktime))
++          {
++            sleeptime = io_blocktime - (mn_now - prev_mn_now);
++
++            if (sleeptime > waittime - backend_mintime)
++              sleeptime = waittime - backend_mintime;
++
++            if (expect_true (sleeptime > 0.))
++              {
++                ev_sleep (sleeptime);
++                waittime -= sleeptime;
++              }
++          }
++      }
++
++#if EV_FEATURE_API
++    ++loop_count;
++#endif
++    assert ((loop_done = EVBREAK_RECURSE, 1)); /* assert for side effect */
++    backend_poll (EV_A_ waittime);
++    assert ((loop_done = EVBREAK_CANCEL, 1)); /* assert for side effect */
++
++    pipe_write_wanted = 0; /* just an optimisation, no fence needed */
++
++    ECB_MEMORY_FENCE_ACQUIRE;
++    if (pipe_write_skipped)
++      {
++        assert (("libev: pipe_w not active, but pipe not written", ev_is_active (&pipe_w)));
++        ev_feed_event (EV_A_ &pipe_w, EV_CUSTOM);
++      }
++
++
++    /* update ev_rt_now, do magic */
++    time_update (EV_A_ waittime + sleeptime);
++  }
++
++  /* queue pending timers and reschedule them */
++  timers_reify (EV_A); /* relative timers called last */
++#if EV_PERIODIC_ENABLE
++  periodics_reify (EV_A); /* absolute timers called first */
++#endif
++
++#if EV_IDLE_ENABLE
++  /* queue idle watchers unless other events are pending */
++  idle_reify (EV_A);
++#endif
++
++#if EV_CHECK_ENABLE
++  /* queue check watchers, to be executed first */
++  if (expect_false (checkcnt))
++    queue_events (EV_A_ (W *)checks, checkcnt, EV_CHECK);
++#endif
++}
++
+ int
+ ev_run (EV_P_ int flags)
+ {
+@@ -3365,109 +3473,7 @@ ev_run (EV_P_ int flags)
+       if (expect_false (loop_done))
+         break;
+ 
+-      /* we might have forked, so reify kernel state if necessary */
+-      if (expect_false (postfork))
+-        loop_fork (EV_A);
+-
+-      /* update fd-related kernel structures */
+-      fd_reify (EV_A);
+-
+-      /* calculate blocking time */
+-      {
+-        ev_tstamp waittime  = 0.;
+-        ev_tstamp sleeptime = 0.;
+-
+-        /* remember old timestamp for io_blocktime calculation */
+-        ev_tstamp prev_mn_now = mn_now;
+-
+-        /* update time to cancel out callback processing overhead */
+-        time_update (EV_A_ 1e100);
+-
+-        /* from now on, we want a pipe-wake-up */
+-        pipe_write_wanted = 1;
+-
+-        ECB_MEMORY_FENCE; /* make sure pipe_write_wanted is visible before we check for potential skips */
+-
+-        if (expect_true (!(flags & EVRUN_NOWAIT || idleall || !activecnt || pipe_write_skipped)))
+-          {
+-            waittime = MAX_BLOCKTIME;
+-
+-            if (timercnt)
+-              {
+-                ev_tstamp to = ANHE_at (timers [HEAP0]) - mn_now;
+-                if (waittime > to) waittime = to;
+-              }
+-
+-#if EV_PERIODIC_ENABLE
+-            if (periodiccnt)
+-              {
+-                ev_tstamp to = ANHE_at (periodics [HEAP0]) - ev_rt_now;
+-                if (waittime > to) waittime = to;
+-              }
+-#endif
+-
+-            /* don't let timeouts decrease the waittime below timeout_blocktime */
+-            if (expect_false (waittime < timeout_blocktime))
+-              waittime = timeout_blocktime;
+-
+-            /* at this point, we NEED to wait, so we have to ensure */
+-            /* to pass a minimum nonzero value to the backend */
+-            if (expect_false (waittime < backend_mintime))
+-              waittime = backend_mintime;
+-
+-            /* extra check because io_blocktime is commonly 0 */
+-            if (expect_false (io_blocktime))
+-              {
+-                sleeptime = io_blocktime - (mn_now - prev_mn_now);
+-
+-                if (sleeptime > waittime - backend_mintime)
+-                  sleeptime = waittime - backend_mintime;
+-
+-                if (expect_true (sleeptime > 0.))
+-                  {
+-                    ev_sleep (sleeptime);
+-                    waittime -= sleeptime;
+-                  }
+-              }
+-          }
+-
+-#if EV_FEATURE_API
+-        ++loop_count;
+-#endif
+-        assert ((loop_done = EVBREAK_RECURSE, 1)); /* assert for side effect */
+-        backend_poll (EV_A_ waittime);
+-        assert ((loop_done = EVBREAK_CANCEL, 1)); /* assert for side effect */
+-
+-        pipe_write_wanted = 0; /* just an optimisation, no fence needed */
+-
+-        ECB_MEMORY_FENCE_ACQUIRE;
+-        if (pipe_write_skipped)
+-          {
+-            assert (("libev: pipe_w not active, but pipe not written", ev_is_active (&pipe_w)));
+-            ev_feed_event (EV_A_ &pipe_w, EV_CUSTOM);
+-          }
+-
+-
+-        /* update ev_rt_now, do magic */
+-        time_update (EV_A_ waittime + sleeptime);
+-      }
+-
+-      /* queue pending timers and reschedule them */
+-      timers_reify (EV_A); /* relative timers called last */
+-#if EV_PERIODIC_ENABLE
+-      periodics_reify (EV_A); /* absolute timers called first */
+-#endif
+-
+-#if EV_IDLE_ENABLE
+-      /* queue idle watchers unless other events are pending */
+-      idle_reify (EV_A);
+-#endif
+-
+-#if EV_CHECK_ENABLE
+-      /* queue check watchers, to be executed first */
+-      if (expect_false (checkcnt))
+-        queue_events (EV_A_ (W *)checks, checkcnt, EV_CHECK);
+-#endif
++      ev_run_guts(EV_A_ flags);
+ 
+       EV_INVOKE_PENDING;
+     }
+-- 
+2.2.2
+

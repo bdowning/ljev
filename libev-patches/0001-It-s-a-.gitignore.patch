@@ -1,0 +1,43 @@
+From 6cde87e45b68d534ebd7de0e6057ba270e06f33f Mon Sep 17 00:00:00 2001
+From: Brian Downing <bdowning@lavos.net>
+Date: Wed, 13 Aug 2014 17:09:48 -0500
+Subject: [PATCH 1/4] It's a .gitignore
+
+---
+ .gitignore | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+ create mode 100644 .gitignore
+
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..a0f2669
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,24 @@
++*.o
++*.lo
++*.la
++/.deps
++/.libs
++/Makefile
++/Makefile.in
++/aclocal.m4
++/autom4te.cache/
++/compile
++/config.guess
++/config.h
++/config.h.in
++/config.log
++/config.status
++/config.sub
++/configure
++/depcomp
++/install-sh
++/libev.la
++/libtool
++/ltmain.sh
++/missing
++/stamp-h1
+-- 
+2.2.2
+

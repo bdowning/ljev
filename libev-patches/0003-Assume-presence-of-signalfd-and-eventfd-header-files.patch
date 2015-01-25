@@ -1,0 +1,60 @@
+From 55be5841d334ff3a3b30f6eb9241843ad60eab3a Mon Sep 17 00:00:00 2001
+From: Brian Downing <bdowning@lavos.net>
+Date: Sun, 25 Jan 2015 14:40:07 -0600
+Subject: [PATCH 3/4] Assume presence of signalfd and eventfd header files
+
+---
+ ev.c | 34 ++--------------------------------
+ 1 file changed, 2 insertions(+), 32 deletions(-)
+
+diff --git a/ev.c b/ev.c
+index 7836d8f..e4e7c86 100644
+--- a/ev.c
++++ b/ev.c
+@@ -421,41 +421,11 @@
+ #endif
+ 
+ #if EV_USE_EVENTFD
+-/* our minimum requirement is glibc 2.7 which has the stub, but not the header */
+-# include <stdint.h>
+-# ifndef EFD_NONBLOCK
+-#  define EFD_NONBLOCK O_NONBLOCK
+-# endif
+-# ifndef EFD_CLOEXEC
+-#  ifdef O_CLOEXEC
+-#   define EFD_CLOEXEC O_CLOEXEC
+-#  else
+-#   define EFD_CLOEXEC 02000000
+-#  endif
+-# endif
+-EV_CPP(extern "C") int (eventfd) (unsigned int initval, int flags);
++# include <sys/eventfd.h>
+ #endif
+ 
+ #if EV_USE_SIGNALFD
+-/* our minimum requirement is glibc 2.7 which has the stub, but not the header */
+-# include <stdint.h>
+-# ifndef SFD_NONBLOCK
+-#  define SFD_NONBLOCK O_NONBLOCK
+-# endif
+-# ifndef SFD_CLOEXEC
+-#  ifdef O_CLOEXEC
+-#   define SFD_CLOEXEC O_CLOEXEC
+-#  else
+-#   define SFD_CLOEXEC 02000000
+-#  endif
+-# endif
+-EV_CPP (extern "C") int signalfd (int fd, const sigset_t *mask, int flags);
+-
+-struct signalfd_siginfo
+-{
+-  uint32_t ssi_signo;
+-  char pad[128 - sizeof (uint32_t)];
+-};
++# include <sys/signalfd.h>
+ #endif
+ 
+ /**/
+-- 
+2.2.2
+

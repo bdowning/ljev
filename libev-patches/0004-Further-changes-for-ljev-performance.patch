@@ -1,0 +1,102 @@
+From 79b1ab23e01b5a17fc568d6b22b7d773406cae80 Mon Sep 17 00:00:00 2001
+From: Brian Downing <bdowning@lavos.net>
+Date: Sun, 25 Jan 2015 14:40:32 -0600
+Subject: [PATCH 4/4] Further changes for ljev performance
+
+---
+ ev.c | 65 +++++++++++++++++++++++++++++++++++++++++++----------------------
+ 1 file changed, 43 insertions(+), 22 deletions(-)
+
+diff --git a/ev.c b/ev.c
+index e4e7c86..afbc4a7 100644
+--- a/ev.c
++++ b/ev.c
+@@ -1779,6 +1779,12 @@ queue_events (EV_P_ W *events, int eventcnt, int type)
+     ev_feed_event (EV_A_ events [i], type);
+ }
+ 
++void
++ev_queue_events (EV_P_ W *events, int eventcnt, int type)
++{
++  queue_events (EV_A_ events, eventcnt, type);
++}
++
+ /*****************************************************************************/
+ 
+ inline_speed void
+@@ -3286,6 +3292,42 @@ time_update (EV_P_ ev_tstamp max_block)
+ }
+ 
+ void
++ev_run_prep (EV_P)
++{
++#if EV_VERIFY >= 2
++  ev_verify (EV_A);
++#endif
++
++#ifndef _WIN32
++  if (expect_false (curpid)) /* penalise the forking check even more */
++    if (expect_false (getpid () != curpid))
++      {
++        curpid = getpid ();
++        postfork = 1;
++      }
++#endif
++
++#if EV_FORK_ENABLE
++  /* we might have forked, so queue fork handlers */
++  if (expect_false (postfork))
++    if (forkcnt)
++      {
++        queue_events (EV_A_ (W *)forks, forkcnt, EV_FORK);
++        EV_INVOKE_PENDING;
++      }
++#endif
++
++#if EV_PREPARE_ENABLE
++  /* queue prepare watchers (and execute them) */
++  if (expect_false (preparecnt))
++    {
++      queue_events (EV_A_ (W *)prepares, preparecnt, EV_PREPARE);
++      /* EV_INVOKE_PENDING; */
++    }
++#endif
++}
++
++void
+ ev_run_guts (EV_P_ int flags)
+ {
+   /* we might have forked, so reify kernel state if necessary */
+@@ -3408,28 +3450,7 @@ ev_run (EV_P_ int flags)
+ 
+   do
+     {
+-#if EV_VERIFY >= 2
+-      ev_verify (EV_A);
+-#endif
+-
+-#ifndef _WIN32
+-      if (expect_false (curpid)) /* penalise the forking check even more */
+-        if (expect_false (getpid () != curpid))
+-          {
+-            curpid = getpid ();
+-            postfork = 1;
+-          }
+-#endif
+-
+-#if EV_FORK_ENABLE
+-      /* we might have forked, so queue fork handlers */
+-      if (expect_false (postfork))
+-        if (forkcnt)
+-          {
+-            queue_events (EV_A_ (W *)forks, forkcnt, EV_FORK);
+-            EV_INVOKE_PENDING;
+-          }
+-#endif
++      ev_run_prep(EV_A);
+ 
+ #if EV_PREPARE_ENABLE
+       /* queue prepare watchers (and execute them) */
+-- 
+2.2.2
+
