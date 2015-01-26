@@ -7,7 +7,7 @@ local C, ffi = require 'cdef' {
 }
 
 local band, bor = bit.band, bit.bor
-local cast = ffi.cast
+local cast, ffi_istype = ffi.cast, ffi.istype
 
 local evC = ffi.load('ev')
 
@@ -138,7 +138,7 @@ function ev.default_loop(flags)
     return loop
 end
 
-ffi.metatype('struct ev_loop', { __index = {
+local ev_loop_t = ffi.metatype('struct ev_loop', { __index = {
     iteration = function (loop)
         return tonumber(evC.ev_iteration(loop))
     end,
@@ -190,6 +190,14 @@ ffi.metatype('struct ev_loop', { __index = {
         evC.ev_feed_signal_event(loop, signum)
     end,
 }})
+
+local function loop_arg(loop)
+    if not loop then
+        return ev.default_loop()
+    end
+    assert(ffi_istype(ev_loop_t, loop), "loop argument is not a loop")
+    return loop
+end
 
 ev.FLAG_AUTO = C.EVFLAG_AUTO
 ev.FLAG_FORKCHECK = C.EVFLAG_FORKCHECK
@@ -247,11 +255,11 @@ local Watcher = {
     end,
 
     clear_pending = function (w, loop)
-        return evC.ev_clear_pending(loop or ev.default_loop(), w)
+        return evC.ev_clear_pending(loop_arg(loop), w)
     end,
 
     feed_event = function (w, loop, revents)
-        evC.ev_feed_event(loop or ev.default_loop(), w, revents)
+        evC.ev_feed_event(loop_arg(loop), w, revents)
     end,
 }
 Watcher.__index = Watcher
@@ -262,12 +270,12 @@ local IO = setmetatable({
         w._wC.fd = w.fd
         w._wC.events = bor(w.events, C.EV__IOFDSET)
         activate_watcher(w, w.cb)
-        evC.ev_io_start(loop or ev.default_loop(), w._wC)
+        evC.ev_io_start(loop_arg(loop), w._wC)
     end,
 
     stop = function (w, loop)
         if not w:is_active() then return end
-        evC.ev_io_stop(loop or ev.default_loop(), w._wC)
+        evC.ev_io_stop(loop_arg(loop), w._wC)
         deactivate_watcher(w)
     end,
 }, Watcher)
@@ -294,7 +302,7 @@ local Timer = setmetatable({
         w._wC.at = w.at or 0
         w._wC['repeat'] = w.rep or 0
         activate_watcher(w, w.cb)
-        evC.ev_timer_start(loop or ev.default_loop(), w._wC)
+        evC.ev_timer_start(loop_arg(loop), w._wC)
     end,
 
     again = function (w, loop, rep)
@@ -307,12 +315,12 @@ local Timer = setmetatable({
     end,
 
     remaining = function (w, loop)
-        return evC.ev_timer_remaining(loop or ev.default_loop(), w._wC)
+        return evC.ev_timer_remaining(loop_arg(loop), w._wC)
     end,
 
     stop = function (w, loop)
         if not w:is_active() then return end
-        evC.ev_timer_stop(loop or ev.default_loop(), w._wC)
+        evC.ev_timer_stop(loop_arg(loop), w._wC)
         deactivate_watcher(w)
     end,
 }, Watcher)
@@ -354,7 +362,7 @@ local Periodic = setmetatable({
             end
         end
         activate_watcher(w, w.cb)
-        evC.ev_periodic_start(loop or ev.default_loop(), w._wC)
+        evC.ev_periodic_start(loop_arg(loop), w._wC)
     end,
 
     again = function (w, loop, offset, interval)
@@ -374,7 +382,7 @@ local Periodic = setmetatable({
 
     stop = function (w, loop)
         if not w:is_active() then return end
-        evC.ev_periodic_stop(loop or ev.default_loop(), w._wC)
+        evC.ev_periodic_stop(loop_arg(loop), w._wC)
         deactivate_watcher(w)
     end,
 }, Watcher)
@@ -404,12 +412,12 @@ local Signal = setmetatable({
         if w:is_active() then return end
         w._wC.signum = w.signum
         activate_watcher(w, w.cb)
-        evC.ev_signal_start(loop or ev.default_loop(), w._wC)
+        evC.ev_signal_start(loop_arg(loop), w._wC)
     end,
 
     stop = function (w, loop)
         if not w:is_active() then return end
-        evC.ev_signal_stop(loop or ev.default_loop(), w._wC)
+        evC.ev_signal_stop(loop_arg(loop), w._wC)
         deactivate_watcher(w)
     end,
 }, Watcher)
@@ -438,12 +446,12 @@ local Child = setmetatable({
         w._wC.pid = w.pid
         w._wC.flags = not not w.trace
         activate_watcher(w, child_cb_wrapper(w.cb))
-        evC.ev_child_start(loop or ev.default_loop(), w._wC)
+        evC.ev_child_start(loop_arg(loop), w._wC)
     end,
 
     stop = function (w, loop)
         if not w:is_active() then return end
-        evC.ev_child_stop(loop or ev.default_loop(), w._wC)
+        evC.ev_child_stop(loop_arg(loop), w._wC)
         deactivate_watcher(w)
     end,
 }, Watcher)
@@ -463,12 +471,12 @@ local Idle = setmetatable({
     start = function (w, loop)
         if w:is_active() then return end
         activate_watcher(w, w.cb)
-        evC.ev_idle_start(loop or ev.default_loop(), w._wC)
+        evC.ev_idle_start(loop_arg(loop), w._wC)
     end,
 
     stop = function (w, loop)
         if not w:is_active() then return end
-        evC.ev_idle_stop(loop or ev.default_loop(), w._wC)
+        evC.ev_idle_stop(loop_arg(loop), w._wC)
         deactivate_watcher(w)
     end,
 }, Watcher)
@@ -486,12 +494,12 @@ local Prepare = setmetatable({
     start = function (w, loop)
         if w:is_active() then return end
         activate_watcher(w, w.cb)
-        evC.ev_prepare_start(loop or ev.default_loop(), w._wC)
+        evC.ev_prepare_start(loop_arg(loop), w._wC)
     end,
 
     stop = function (w, loop)
         if not w:is_active() then return end
-        evC.ev_prepare_stop(loop or ev.default_loop(), w._wC)
+        evC.ev_prepare_stop(loop_arg(loop), w._wC)
         deactivate_watcher(w)
     end,
 }, Watcher)
@@ -509,12 +517,12 @@ local Check = setmetatable({
     start = function (w, loop)
         if w:is_active() then return end
         activate_watcher(w, w.cb)
-        evC.ev_check_start(loop or ev.default_loop(), w._wC)
+        evC.ev_check_start(loop_arg(loop), w._wC)
     end,
 
     stop = function (w, loop)
         if not w:is_active() then return end
-        evC.ev_check_stop(loop or ev.default_loop(), w._wC)
+        evC.ev_check_stop(loop_arg(loop), w._wC)
         deactivate_watcher(w)
     end,
 }, Watcher)
