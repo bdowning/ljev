@@ -281,9 +281,10 @@ local IO = setmetatable({
 }, Watcher)
 IO.__index = IO
 
+local ev_io_t = ffi.typeof('ev_io')
 function ev.io_new(cb, fd, events)
     local w = {
-        _wC = ffi.new('ev_io', { cb = lua_cb_trampoline_cptr }),
+        _wC = ev_io_t{ cb = lua_cb_trampoline_cptr },
         cb = cb,
         fd = fd,
         events = events
@@ -326,9 +327,10 @@ local Timer = setmetatable({
 }, Watcher)
 Timer.__index = Timer
 
+local ev_timer_t = ffi.typeof('ev_timer')
 function ev.timer_new(cb, at, rep)
     local w = {
-        _wC = ffi.new('ev_timer', { cb = lua_cb_trampoline_cptr }),
+        _wC = ev_timer_t{ cb = lua_cb_trampoline_cptr },
         cb = cb,
         at = at,
         rep = rep,
@@ -395,9 +397,10 @@ local function periodic_gc(_wC)
     end
 end
 
+local ev_periodic_t = ffi.typeof('ev_periodic')
 function ev.periodic_new(cb, offset, interval, reschedule_cb)
     local w = {
-        _wC = ffi.new('ev_periodic', { cb = lua_cb_trampoline_cptr }),
+        _wC = ev_periodic_t{ cb = lua_cb_trampoline_cptr },
         cb = cb,
         offset = offset,
         interval = interval,
@@ -423,9 +426,10 @@ local Signal = setmetatable({
 }, Watcher)
 Signal.__index = Signal
 
+local ev_signal_t = ffi.typeof('ev_signal')
 function ev.signal_new(cb, signum)
     local w = {
-        _wC = ffi.new('ev_signal', { cb = lua_cb_trampoline_cptr }),
+        _wC = ev_signal_t{ cb = lua_cb_trampoline_cptr },
         cb = cb,
         signum = signum,
     }
@@ -457,9 +461,10 @@ local Child = setmetatable({
 }, Watcher)
 Child.__index = Child
 
+local ev_child_t = ffi.typeof('ev_child')
 function ev.child_new(cb, pid, trace)
     local w = {
-        _wC = ffi.new('ev_child', { cb = lua_cb_trampoline_cptr }),
+        _wC = ev_child_t{ cb = lua_cb_trampoline_cptr },
         cb = cb,
         pid = pid,
         trace = trace,
@@ -482,9 +487,10 @@ local Idle = setmetatable({
 }, Watcher)
 Idle.__index = Idle
 
+local ev_idle_t = ffi.typeof('ev_idle')
 function ev.idle_new(cb)
     local w = {
-        _wC = ffi.new('ev_idle', { cb = lua_cb_trampoline_cptr }),
+        _wC = ev_idle_t{ cb = lua_cb_trampoline_cptr },
         cb = cb,
     }
     return setmetatable(w, Idle)
@@ -505,9 +511,10 @@ local Prepare = setmetatable({
 }, Watcher)
 Prepare.__index = Prepare
 
+local ev_prepare_t = ffi.typeof('ev_prepare')
 function ev.prepare_new(cb)
     local w = {
-        _wC = ffi.new('ev_prepare', { cb = lua_cb_trampoline_cptr }),
+        _wC = ev_prepare_t{ cb = lua_cb_trampoline_cptr },
         cb = cb,
     }
     return setmetatable(w, Prepare)
@@ -528,9 +535,10 @@ local Check = setmetatable({
 }, Watcher)
 Check.__index = Check
 
+local ev_check_t = ffi.typeof('ev_check')
 function ev.check_new(cb)
     local w = {
-        _wC = ffi.new('ev_check', { cb = lua_cb_trampoline_cptr }),
+        _wC = ev_check_t{ cb = lua_cb_trampoline_cptr },
         cb = cb,
     }
     return setmetatable(w, Check)
