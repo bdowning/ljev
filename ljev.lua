@@ -125,8 +125,6 @@ if pcall(function () return evC.ev_run_guts end) then
 
         return loop.activecnt
     end
-else
-    error('no patch?')
 end
 
 local default_loop_initialized = false
