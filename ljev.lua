@@ -336,9 +336,6 @@ function ev.timer_new(cb, at, rep)
     return setmetatable(w, Timer)
 end
 
-local new_reschedule_cb =
-    ffi.typeof('ev_tstamp (*)(ev_periodic *w, ev_tstamp now)')
-
 local Periodic = setmetatable({
     start = function (w, loop, offset, interval)
         if w:is_active() then return end
@@ -353,7 +350,7 @@ local Periodic = setmetatable({
             if w._wC.reschedule_cb ~= nil then
                 w._wC.reschedule_cb:set(w.reschedule_cb)
             else
-                w._wC.reschedule_cb = new_reschedule_cb(w.reschedule_cb)
+                w._wC.reschedule_cb = w.reschedule_cb
             end
         else
             if w._wC.reschedule_cb ~= nil then
