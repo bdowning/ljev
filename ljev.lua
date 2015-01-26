@@ -6,6 +6,9 @@ local C, ffi = require 'cdef' {
     constants = { 'EV*', 'NUMPRI' },
 }
 
+local band, bor = bit.band, bit.bor
+local cast = ffi.cast
+
 local evC = ffi.load('ev')
 
 local ev = { }
@@ -17,7 +20,7 @@ local free_watcher_slots = { }
 local next_watcher_slot = 2
 
 local function activate_watcher(w, cb)
-    local slot = tonumber(ffi.cast('int', w._wC.data))
+    local slot = tonumber(cast('int', w._wC.data))
     if slot == 0 then
         if #free_watcher_slots > 0 then
             slot = table.remove(free_watcher_slots)
@@ -25,7 +28,7 @@ local function activate_watcher(w, cb)
             slot = next_watcher_slot
             next_watcher_slot = next_watcher_slot + 2
         end
-        w._wC.data = ffi.cast('void *', slot)
+        w._wC.data = cast('void *', slot)
         active_watchers[slot] = w
         -- print('activate_watcher', w, cb, slot)
     end
@@ -33,7 +36,7 @@ local function activate_watcher(w, cb)
 end
 
 local function deactivate_watcher(w)
-    local slot = tonumber(ffi.cast('int', w._wC.data))
+    local slot = tonumber(cast('int', w._wC.data))
     if slot ~= 0 then
         -- print('deactivate_watcher', w, slot)
         assert(slot > 0)
@@ -46,14 +49,14 @@ end
 
 local function lua_cb_trampoline(loop, wC, revents)
     -- print('lua_cb_trampoline', loop, wC, revents)
-    local slot = tonumber(ffi.cast('int', wC.data))
+    local slot = tonumber(cast('int', wC.data))
     local w = active_watchers[slot]
     active_watchers[slot + 1](loop, w, revents)
     if wC.active == 0 then deactivate_watcher(w) end
 end
 local lua_cb_trampoline_cptr =
-    ffi.cast('void (*)(struct ev_loop *loop, ev_watcher *w, int revents)',
-             lua_cb_trampoline)
+    cast('void (*)(struct ev_loop *loop, ev_watcher *w, int revents)',
+         lua_cb_trampoline)
 
 local function invoke_pending(loop)
     loop.pendingpri = C.NUMPRI
@@ -75,7 +78,7 @@ local function invoke_pending(loop)
         end
     end
 end
-local invoke_pending_cptr = ffi.cast('ev_loop_callback', invoke_pending)
+local invoke_pending_cptr = cast('ev_loop_callback', invoke_pending)
 
 ffi.cdef[[
     void ev_queue_events(struct ev_loop *loop, W *events, int eventcnt, int type);
@@ -98,7 +101,7 @@ if pcall(function () return evC.ev_run_guts end) then
             evC.ev_run_prep(loop)
 
             if loop.preparecnt ~= 0 then
-                -- evC.ev_queue_events(loop, ffi.cast('W *', loop.prepares),
+                -- evC.ev_queue_events(loop, cast('W *', loop.prepares),
                 --                     loop.preparecnt, C.EV_PREPARE)
                 invoke_pending(loop)
             end
@@ -112,7 +115,7 @@ if pcall(function () return evC.ev_run_guts end) then
             invoke_pending(loop)
         until not (loop.activecnt ~= 0 and
                        not loop.loop_done ~= 0 and
-                       not bit.band(flags, C.EVRUN_ONCE + C.EVRUN_NOWAIT) ~= 0)
+                       not band(flags, C.EVRUN_ONCE + C.EVRUN_NOWAIT) ~= 0)
 
         if loop.loop_done == C.EVBREAK_ONE then
             loop.loop_done = C.EVBREAK_CANCEL
@@ -257,7 +260,7 @@ local IO = setmetatable({
     start = function (w, loop)
         if w:is_active() then return end
         w._wC.fd = w.fd
-        w._wC.events = bit.bor(w.events, C.EV__IOFDSET)
+        w._wC.events = bor(w.events, C.EV__IOFDSET)
         activate_watcher(w, w.cb)
         evC.ev_io_start(loop or ev.default_loop(), w._wC)
     end,
@@ -555,7 +558,7 @@ print('fd', fd)
 local iow = ev.io_new(function (loop, w, revents)
     print('io watcher', loop, w, w.fd, w._wC.fd, w._wC.events, revents, w.count)
     print('revents', string.format('%08x', revents))
-    if bit.band(revents, ev.ERROR) ~= 0 then
+    if band(revents, ev.ERROR) ~= 0 then
         error('wtf?')
     end
     w.count = w.count + 1
