@@ -310,7 +310,7 @@ local Timer = setmetatable({
         end
         w.rep = rep or w.rep
         w._wC['repeat'] = w.rep or 0
-        evC.ev_timer_again(loop, w._wC)
+        evC.ev_timer_again(loop_arg(loop), w._wC)
     end,
 
     remaining = function (w, loop)
@@ -370,7 +370,7 @@ local Periodic = setmetatable({
         w.interval = interval or w.interval
         w._wC.offset = w.offset or 0
         w._wC.interval = w.interval or 0
-        evC.ev_periodic_again(loop, w._wC)
+        evC.ev_periodic_again(loop_arg(loop), w._wC)
     end,
 
     at = function (w)
