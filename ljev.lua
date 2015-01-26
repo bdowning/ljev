@@ -630,3 +630,26 @@ end)
 idle:start()
 print('idle', idle)
 print('run', loop:run())
+
+local periodic = ev.periodic_new(function (loop, w, revents)
+    print('periodic!', loop, w, revents)
+    w.count = w.count and w.count + 1 or 1
+    print('w.count', w.count)
+    if w.count > 10 then
+        w:stop()
+    end
+end)
+periodic:start(0, 0.1)
+print('run', loop:run())
+periodic.count = 5
+periodic.reschedule_cb = function (w, now)
+    return now + 0.2
+end
+periodic:start()
+print('run', loop:run())
+periodic.count = 8
+periodic.reschedule_cb = function (w, now)
+    return now + 0.5
+end
+periodic:start()
+print('run', loop:run())
